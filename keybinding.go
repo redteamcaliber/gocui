@@ -13,11 +13,6 @@ type (
 	// Modifier allows to define special keys combinations. They can be used
 	// in combination with Keys or Runes when a new keybinding is defined.
 	Modifier termbox.Modifier
-
-	// KeybindingHandler represents the handler linked to a specific
-	// keybindings. The handler is called when a key-press event satisfies a
-	// configured keybinding.
-	KeybindingHandler func(*Gui, *View) error
 )
 
 // Special keys.
@@ -112,17 +107,17 @@ type keybinding struct {
 	key      Key
 	ch       rune
 	mod      Modifier
-	h        KeybindingHandler
+	handler  func(*Gui, *View) error
 }
 
 // newKeybinding returns a new Keybinding object.
-func newKeybinding(viewname string, key Key, ch rune, mod Modifier, h KeybindingHandler) (kb *keybinding) {
+func newKeybinding(viewname string, key Key, ch rune, mod Modifier, handler func(*Gui, *View) error) (kb *keybinding) {
 	kb = &keybinding{
 		viewName: viewname,
 		key:      key,
 		ch:       ch,
 		mod:      mod,
-		h:        h,
+		handler:  handler,
 	}
 	return kb
 }

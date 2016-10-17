@@ -10,12 +10,25 @@ import (
 	"github.com/nsf/termbox-go"
 )
 
-// Handler represents a handler that can be used to update or modify the GUI.
-type Handler func(*Gui) error
+// A Layouter generates the base layout of the GUI. Layout is called every time
+// the gui is redrawn, it must create the base views and initialize them.
+type Layouter interface {
+	Layout(*Gui) error
+}
+
+// The LayouterFunc type is an adapter to allow the use of ordinary functions
+// as Layouters. If f is a function with the appropriate signature,
+// LayouterFunc(f) is a Layouter object that calls f.
+type LayouterFunc func(*Gui) error
+
+// Layout calls f(g)
+func (f LayouterFunc) Layout(g *Gui) error {
+	return f(g)
+}
 
 // userEvent represents an event triggered by the user.
 type userEvent struct {
-	h Handler
+	f func(*Gui) error
 }
 
 var (
@@ -33,7 +46,7 @@ type Gui struct {
 	userEvents  chan userEvent
 	views       []*View
 	currentView *View
-	layout      Handler
+	layouter    Layouter
 	keybindings []*keybinding
 	maxX, maxY  int
 
@@ -218,14 +231,14 @@ func (g *Gui) CurrentView() *View {
 // SetKeybinding creates a new keybinding. If viewname equals to ""
 // (empty string) then the keybinding will apply to all views. key must
 // be a rune or a Key.
-func (g *Gui) SetKeybinding(viewname string, key interface{}, mod Modifier, h KeybindingHandler) error {
+func (g *Gui) SetKeybinding(viewname string, key interface{}, mod Modifier, handler func(*Gui, *View) error) error {
 	var kb *keybinding
 
 	k, ch, err := getKey(key)
 	if err != nil {
 		return err
 	}
-	kb = newKeybinding(viewname, k, ch, mod, h)
+	kb = newKeybinding(viewname, k, ch, mod, handler)
 	g.keybindings = append(g.keybindings, kb)
 	return nil
 }
@@ -270,22 +283,25 @@ func getKey(key interface{}) (Key, rune, error) {
 	}
 }
 
-// Execute executes the given handler. This function can be called safely from
+// Execute executes the given function. This function can be called safely from
 // a goroutine in order to update the GUI. It is important to note that it
 // won't be executed immediately, instead it will be added to the user events
 // queue.
-func (g *Gui) Execute(h Handler) {
-	go func() { g.userEvents <- userEvent{h: h} }()
+func (g *Gui) Execute(f func(*Gui) error) {
+	go func() { g.userEvents <- userEvent{f: f} }()
 }
 
-// SetLayout sets the current layout. A layout is a function that
-// will be called every time the gui is redrawn, it must contain
-// the base views and its initializations.
-func (g *Gui) SetLayout(layout Handler) {
-	g.layout = layout
+// Layout registers a layouter for the GUI.
+func (g *Gui) Layout(layouter Layouter) {
+	g.layouter = layouter
 	g.currentView = nil
 	g.views = nil
 	go func() { g.tbEvents <- termbox.Event{Type: termbox.EventResize} }()
+}
+
+// LayoutFunc registers a layout function for the GUI.
+func (g *Gui) LayoutFunc(layout func(*Gui) error) {
+	g.Layout(LayouterFunc(layout))
 }
 
 // MainLoop runs the main loop until an error is returned. A successful
@@ -316,7 +332,7 @@ func (g *Gui) MainLoop() error {
 				return err
 			}
 		case ev := <-g.userEvents:
-			if err := ev.h(g); err != nil {
+			if err := ev.f(g); err != nil {
 				return err
 			}
 		}
@@ -338,7 +354,7 @@ func (g *Gui) consumeevents() error {
 				return err
 			}
 		case ev := <-g.userEvents:
-			if err := ev.h(g); err != nil {
+			if err := ev.f(g); err != nil {
 				return err
 			}
 		default:
@@ -362,8 +378,8 @@ func (g *Gui) handleEvent(ev *termbox.Event) error {
 
 // flush updates the gui, re-drawing frames and buffers.
 func (g *Gui) flush() error {
-	if g.layout == nil {
-		return errors.New("Null layout")
+	if g.layouter == nil {
+		return errors.New("Null layouter")
 	}
 
 	termbox.Clear(termbox.Attribute(g.FgColor), termbox.Attribute(g.BgColor))
@@ -377,7 +393,7 @@ func (g *Gui) flush() error {
 	}
 	g.maxX, g.maxY = maxX, maxY
 
-	if err := g.layout(g); err != nil {
+	if err := g.layouter.Layout(g); err != nil {
 		return err
 	}
 	for _, v := range g.views {
@@ -526,6 +542,9 @@ func (g *Gui) draw(v *View) error {
 // of the edges that converge at these points.
 func (g *Gui) drawIntersections() error {
 	for _, v := range g.views {
+		if !v.Frame {
+			continue
+		}
 		if ch, ok := g.intersectionRune(v.x0, v.y0); ok {
 			if err := g.SetRune(v.x0, v.y0, ch); err != nil {
 				return err
@@ -633,11 +652,11 @@ func (g *Gui) onKey(ev *termbox.Event) error {
 // and event.
 func (g *Gui) execKeybindings(v *View, ev *termbox.Event) error {
 	for _, kb := range g.keybindings {
-		if kb.h == nil {
+		if kb.handler == nil {
 			continue
 		}
 		if kb.matchKeypress(Key(ev.Key), ev.Ch, Modifier(ev.Mod)) && kb.matchView(v) {
-			if err := kb.h(g, v); err != nil {
+			if err := kb.handler(g, v); err != nil {
 				return err
 			}
 		}

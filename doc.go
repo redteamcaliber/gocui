@@ -22,7 +22,7 @@ Create a new GUI:
 
 Set the layout function:
 
-	g.SetLayout(fcn)
+	g.LayoutFunc(fcn)
 
 On each iteration of the GUI's main loop, the "layout function" is executed.
 These layout functions can be used to set-up and update the application's main
