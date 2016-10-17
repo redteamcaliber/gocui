@@ -42,7 +42,7 @@ func main() {
 
 func layout(g *gocui.Gui) error {
 	maxX, _ := g.Size()
-	v, err := g.SetView("legend", maxX-25, 0, maxX-1, 8)
+	v, err := g.SetView("help", maxX-25, 0, maxX-1, 9)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -53,6 +53,7 @@ func layout(g *gocui.Gui) error {
 		fmt.Fprintln(v, "← ↑ → ↓: Move View")
 		fmt.Fprintln(v, "Backspace: Delete View")
 		fmt.Fprintln(v, "t: Set view on top")
+		fmt.Fprintln(v, "f: Toggle view's frame")
 		fmt.Fprintln(v, "^C: Exit")
 	}
 	return nil
@@ -105,6 +106,9 @@ func initKeybindings(g *gocui.Gui) error {
 		return err
 	}
 	if err := g.SetKeybinding("", 't', gocui.ModNone, ontop); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("", 'f', gocui.ModNone, toggleFrame); err != nil {
 		return err
 	}
 	return nil
@@ -199,4 +203,9 @@ func moveView(g *gocui.Gui, v *gocui.View, dx, dy int) error {
 func ontop(g *gocui.Gui, v *gocui.View) error {
 	_, err := g.SetViewOnTop(views[curView])
 	return err
+}
+
+func toggleFrame(g *gocui.Gui, v *gocui.View) error {
+	v.Frame = !v.Frame
+	return nil
 }
